@@ -1,0 +1,19 @@
+{
+  "name": "test_dashboard_tool",
+  "version": "1.0.0",
+  "description": "",
+  "main": "get-dashboard-info.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hirazydevclone/DashBoard-Merch.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hirazydevclone/DashBoard-Merch/issues"
+  },
+  "homepage": "https://github.com/hirazydevclone/DashBoard-Merch#readme"
+}
