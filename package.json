@@ -1,7 +1,7 @@
 {
   "name": "test_dashboard_tool",
   "version": "1.0.0",
-  "main": "get-dashboard-info.js",
+  "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -15,10 +15,15 @@
     "url": "https://github.com/hirazydevclone/DashBoard-Merch/issues"
   },
   "homepage": "https://github.com/hirazydevclone/DashBoard-Merch#readme",
-  "description": "",
+  "description": "DashBoard-Merch",
   "dependencies": {
     "axios": "^0.26.1",
     "cheerio": "^1.0.0-rc.10",
-    "puppeteer": "^13.5.1"
-  }
+    "got": "^12.0.3",
+    "jsdom": "^19.0.0",
+    "puppeteer": "^13.5.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {},
+  "keywords": []
 }
