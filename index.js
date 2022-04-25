@@ -20,7 +20,61 @@ const urlAnalyzeProducts = "https://merch.amazon.com/analyze/products"
 
 const profileID = "620ddcf8d9863b1f18f2f371"
 
-console.log("Starting")
+const MKT_US = ".com"
+const MKT_UK = ".co.uk"
+const MKT_DE = ".de"
+const MKT_FR = ".fr"
+const MKT_IT = ".it"
+const MKT_ES = ".es"
+const MKT_JP = ".co.jp"
+
+const STATUS_DRAFT = "Draft"
+const STATUS_TRANSLATING = "Translating"
+const STATUS_UNDER_REVIEW = "Under Review"
+const STATUS_DECLINED = "Declined"
+const STATUS_REJECTED = "Rejected"
+const STATUS_PROCESSING = "Processing"
+const STATUS_TIMED_OUT = "Timed out"
+const STATUS_AUTO_UPLOADED = "Auto-uploaded"
+const STATUS_LIVE = "Live"
+const STATUS_REMOVED = "Removed"
+
+const STATUS_SELECTOR_UNDER_REVIEW = "REVIEW"
+const STATUS_SELECTOR_DECLINED = "DECLINED"
+const STATUS_SELECTOR_REJECTED = "AMAZON_REJECTED"
+const STATUS_SELECTOR_PROCESSING = "PUBLISHING"
+
+const checkStatusList = [
+    STATUS_SELECTOR_UNDER_REVIEW,
+    STATUS_SELECTOR_DECLINED,
+    STATUS_SELECTOR_REJECTED,
+    STATUS_SELECTOR_PROCESSING
+]
+
+const months_year = [
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December"
+]
+
+/**
+ * @requires
+ * @access only products has publish and has sales
+ */
+
+/**
+ * UNDER_REVIEW, PROCESSING, REJECTED, LIVE
+ */
+// console.log("Starting")
 
 /**
  * Tier
@@ -77,7 +131,14 @@ async function getDashBoardInfo() {
     const thisMonth = ""
     const allTime = ""
 
-    console.log("Time now " + timeNow)
+    let curYear = date_nz.getFullYear()
+    let dateFirstPublish = ""
+    let monthFirstPublish = ""
+    let yearFirstPublish = ""
+
+    console.log("Time now " + curYear)
+
+    let resData = {}
 
     const hidemyacc = new Hidemyacc();
 
@@ -96,8 +157,286 @@ async function getDashBoardInfo() {
         const page = await browser.newPage();
         await page._client.send('Emulation.clearDeviceMetricsOverride')
 
+        let dom = null
+
         /**
-         * Analyze Page
+         * Manage Page
+         */
+        let responseManage = await page.goto(urlManage, { waitUntil: 'load', timeout: 0 });
+        await page.setDefaultNavigationTimeout(60000);
+
+        // Number of pages
+        let isExistProductItems = true
+
+        // Wait Page Loaded - Find First Item
+        while (true) {
+            await sleep(1000)
+            const detectLoadedEle = await page.$('table.table > tr')
+            if (detectLoadedEle != null) {
+                break
+            }
+
+            const detectWarning = await page.$('span[class="warning-text"]')
+            if (detectWarning != null) {
+                isExistProductItems = falses
+                break
+            }
+
+            // count += 1
+
+            // if (count == 30) {
+            //     return
+            // }
+        }
+
+        await sleep(1000)
+
+        let allProducts = []
+
+        let allSaleProducts = []
+
+        // Check has any Products
+        if (isExistProductItems) {
+
+            let textManageHTML = await page.content()
+
+            dom = new JSDOM(textManageHTML).window.document
+
+            const productAll = dom.querySelector('[class="float-right mb-small mt-small"] > b').textContent
+                // console.log("Product All " + productAll)
+
+            const productAllSplit = productAll.split(" ")
+                // console.log("Product All Split " + productAllSplit[4])
+
+            let maxItems = 100
+
+            // Default 100 => Click 250 Items
+            if (productAllSplit[4] > 100) {
+                maxItems = 250
+                await page.click('button[class="btn btn-outline-secondary dropdown-toggle"]')
+                await page.click('div[class="dropdown-menu show"] > button:nth-child(5)')
+            }
+
+            let countPage = Math.floor(parseInt(productAllSplit[4] - 1) / maxItems) + 1
+
+            // console.log("Count Page " + countPage)
+
+            // Get All
+            for (let i = 0; i < countPage; i++) {
+
+                const isExistProduct = true
+
+                while (true) {
+                    await sleep(1000)
+                    const detectLoadedEle = await page.$('table.table > tr')
+                    if (detectLoadedEle != null) {
+                        break
+                    }
+                }
+
+                const productItems = dom.querySelector('table')
+                const productItemsList = productItems.querySelectorAll('tr')
+
+                let productsList = []
+                    // console.log(`Product Length ${productItemsList.length}`)
+
+                /**
+                 * img: String - Unique ID
+                 * title: String
+                 * mkt: String
+                 * type: String,
+                 * status: []
+                 * createAt: String
+                 * price: String
+                 * asin: String
+                 * 
+                 * */
+                for (let i = 0; i < productItemsList.length; i++) {
+                    const item = productItemsList[i]
+
+                    const trEle = `table[class="table"] > tr:nth-child(${i+2})`
+
+                    const mktEle = 'td:nth-child(1)'
+
+                    const imgEle = 'td:nth-child(2) > img'
+                    const titleEle = 'td:nth-child(2) > span > .product-title'
+                    const brandEle = 'td:nth-child(3)'
+                    const typeEle = 'td:nth-child(4)'
+                    const createdAtEle = 'td:nth-child(5) > div'
+                    const priceAtEle = 'td:nth-child(6)'
+                    const statusEle = 'td:nth-child(7) > div'
+
+                    if (i != 0) {
+                        const mkt = item.querySelector(mktEle).textContent
+                        const img = item.querySelector(imgEle).getAttribute('src')
+                        const title = item.querySelector(titleEle).textContent
+                        const type = item.querySelector(typeEle).textContent
+                        const brand = item.querySelector(brandEle).textContent
+                        const createdAt = item.querySelector(createdAtEle).textContent
+                        const price = item.querySelector(priceAtEle).textContent
+                        const status = item.querySelector(statusEle).textContent
+                        let asin = ""
+                            // const brand = item.querySelector(mktEle).textContent
+
+                        // console.log(`img ${JSON.stringify(img)}`)
+
+                        if (status == STATUS_LIVE) {
+                            asin = item.querySelector(titleEle).getAttribute('href')
+
+                            // console.log("Asin " + asin)
+                        }
+
+                        const product = {
+                            img: img,
+                            mkt: mkt,
+                            title: title,
+                            brand: brand,
+                            type: type,
+                            createdAt: createdAt,
+                            price: price,
+                            status: status,
+                            asin: asin
+                        }
+
+                        allProducts.push(product)
+                    }
+                }
+
+                if (i != countPage - 1) {
+                    // Next Page
+                    await page.click('button[class="sci-icon sci-chevron-right paging plain-transparent-btn bg-transparent border-0 p-0"]')
+                }
+            }
+
+            // console.log("Date First " + allProducts[allProducts.length - 1].createdAt)
+
+            // for (let i = 0; i < productItemsList.length; i++) {
+
+            // }
+
+            const mktList = [
+                "US",
+                "GB",
+                "DE",
+                "FR",
+                "IT",
+                "ES",
+                "JP"
+            ]
+
+            const warningText = 'class="warning-text"'
+
+            // Click to Skip All
+            // await page.click('button[id="MarketplaceDropdown"]')
+            // await page.click(`flowcheckbox[class="mr-2 checkbox-all"]`)
+
+            // let itemMktList = []
+
+            // // Market
+            // // await page.click('class="btn btn-secondary dropdown-toggle"')
+            // // Filter Product
+            // for (let i = 0; i < mktList.length; i++) {
+
+            //     const mkt = mktList[i]
+
+            //     // await page.click('button[id="MarketplaceDropdown"]')
+            //     if (i != 0) {
+            //         const beforeMkt = mktList[i - 1]
+            //         await page.click(`flowcheckbox[class="mr-2 checkbox-${beforeMkt}"]`)
+            //     }
+
+            //     await page.click(`flowcheckbox[class="mr-2 checkbox-${mkt}"]`)
+
+            //     let isExistItem = true
+
+            //     // Wait to load Page    
+            //     while (true) {
+            //         await sleep(1000)
+            //         const detectLoadedEle = await page.$('table.table > tr')
+            //         if (detectLoadedEle != null) {
+            //             break
+            //         }
+
+            //         const detectWarning = await page.$('span[class="warning-text"]')
+            //         if (detectWarning != null) {
+            //             isExistItem = falses
+            //             break
+            //         }
+            //     }
+
+            //     if (!isExistItem) {
+            //         continue;
+            //     }
+
+            //     let textManageHTML = await page.content()
+
+            //     dom = new JSDOM(textManageHTML).window.document
+
+            //     const productItems = dom.querySelector('table')
+            //     const productItemsList = productItems.querySelectorAll('tr')
+
+            //     // console.log(`Product Length ${productItemsList.length}`)
+            // }
+
+            // Click to Skip All
+            await page.click('button[id="StatusDropdown"]')
+            const eleStatusAll = 'filter-type[id="status-filter"] > div > div > div:nth-child(1) > flowcheckbox'
+
+            await page.click(eleStatusAll)
+
+            for (let i = 0; i < checkStatusList.length; i++) {
+
+                const statusSelector = checkStatusList[i]
+
+                // await page.click('button[id="MarketplaceDropdown"]')
+                if (i != 0) {
+                    const beforeStatus = checkStatusList[i - 1]
+                    await page.click(`flowcheckbox[class="mr-2 checkbox-${beforeStatus}"]`)
+                }
+
+                await page.click(`flowcheckbox[class="mr-2 checkbox-${statusSelector}"]`)
+
+                let isExistItem = true
+
+                // Wait to load Page    
+                while (true) {
+                    await sleep(1000)
+                    const detectLoadedEle = await page.$('table.table > tr')
+                    if (detectLoadedEle != null) {
+                        break
+                    }
+
+                    const detectWarning = await page.$('span[class="warning-text"]')
+                    if (detectWarning != null) {
+                        isExistItem = falses
+                        break
+                    }
+                }
+
+                if (!isExistItem) {
+                    continue;
+                }
+
+                let textManageHTML = await page.content()
+
+                dom = new JSDOM(textManageHTML).window.document
+
+                const productItems = dom.querySelector('table')
+                const productItemsList = productItems.querySelectorAll('tr')
+
+                console.log(`${statusSelector} ${productItemsList.length}`)
+
+                // console.log(`Product Length ${productItemsList.length}`)
+            }
+
+            resData["manage"] = {
+                all: allProducts
+            }
+        }
+
+
+        /**
+         * Analyze Page - Products
          */
         let responseText = await page.goto(urlAnalyzeProducts, { waitUntil: 'load', timeout: 0 });
         await page.setDefaultNavigationTimeout(60000);
@@ -121,7 +460,7 @@ async function getDashBoardInfo() {
 
         const textAnalyzeHTML = await page.content()
 
-        let dom = new JSDOM(textAnalyzeHTML).window.document
+        dom = new JSDOM(textAnalyzeHTML).window.document
 
         let priceProducts = []
 
@@ -132,6 +471,32 @@ async function getDashBoardInfo() {
             "JPY"
         ]
 
+        let firstProduct = ""
+
+        if (allProducts.length != 0) {
+            for (let i = allProducts.length - 1; i >= 0; i--) {
+                if (allProducts[i].status == STATUS_LIVE) {
+
+                    firstLiveProduct = allProducts[i].createdAt
+
+                    const splitProduct = firstLiveProduct.split('/')
+                    const month = splitProduct[0]
+                    const date = splitProduct[1]
+                    const year = splitProduct[2]
+
+                    dateFirstPublish = date
+                    monthFirstPublish = month
+                    yearFirstPublish = year
+
+                    console.log("Month " + month)
+                    console.log("Date " + date)
+                    console.log("Year " + year)
+                    break
+                }
+            }
+        }
+
+
         for (const nation of nationSales) {
             const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
             const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
@@ -141,10 +506,127 @@ async function getDashBoardInfo() {
                 sold: soldValue,
                 royalties: royaltiesValue
             })
-            console.log(`${nation}`)
-            console.log(`   Sold Value: ${soldValue}`)
-            console.log(`   Royalties Element: ${royaltiesValue}`)
+
+            // console.log(`${nation}`)
+            // console.log(`   Sold Value: ${soldValue}`)
+            // console.log(`   Royalties Element: ${royaltiesValue}`)
         }
+
+        const infoSales = [
+            "Month",
+            "Week",
+            "Today",
+            "All"
+        ]
+
+        /**
+         * Month div class="ngb-dp-day" tabindex="0"
+         * 
+         */
+
+        // Click To div[class = "input-group-prepend"] > span
+
+        const dateFromEle = 'div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(2) > div > div > span'
+        const dateToEle = `div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(4) > div > div > span`
+
+        const processYear = curYear
+
+        do {
+            await page.click(dateToEle)
+
+            const textHTML = await page.content()
+
+            dom = new JSDOM(textHTML).window.document
+
+            // Get date yesterday 
+            const yesterdayEle = 'div[class="btn-light bg-primary text-white"]'
+
+            const yesterdaySelector = await dom.querySelector(yesterdayEle).textContent
+
+            console.log("Yesterday " + yesterdaySelector)
+
+            // Get To     
+            const datePickerFromEle = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
+            const dateFrom = datePickerFromEle.textContent
+            console.log("Date to " + dateFrom)
+
+            // Get To 
+            // const datePickerToEle = dom.querySelector('input[aria-labelledby="datepicker-to"]')
+            // const dateYesterday = datePickerToEle.value
+            // console.log("Yesterday " + dateYesterday)
+
+
+            // Get This Month
+            if (yesterdaySelector != null) {
+                const dateYesterday = await page.evaluate(el => el.textContent, yesterdaySelector)
+
+                // console.log("Yesterday " + dateYesterday)
+
+                await page.click(dateFromEle)
+
+
+                const textHTML = await page.content()
+
+                dom = new JSDOM(textHTML).window.document
+
+                // Get To   
+                const datePickerFromEle = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
+                const dateFrom = datePickerFromEle.textContent
+                console.log("From Date " + dateFrom)
+
+                await page.click('div[tabindex="0"]')
+
+                await page.click('button[class="btn btn-secondary h-100 font-weight-bold ml-base"]')
+
+                let isExistProductMonth = false
+
+                while (true) {
+
+                    await sleep(1000)
+
+                    const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                    if (tvWarning != null) {
+                        break
+                    }
+
+                    const detectItems = await page.$('tbody > tr')
+                    if (detectItems != null) {
+                        isExistProductMonth = true
+                        break
+                    }
+                }
+
+                if (isExistProductMonth) {
+                    let textAnalyzeMonth = await page.content()
+
+                    dom = new JSDOM(textAnalyzeMonth).window.document
+
+                    const productItems = dom.querySelector('tbody')
+                    const productItemsList = productItems.querySelectorAll('tr')
+
+                    for (const item of productItemsList) {
+                        // Mkt
+
+                        // Title
+
+                        // Product Type
+
+                        // Purchased
+
+                        // Cancelled
+
+                        // Returned
+
+                        // Revenue
+
+                        // Revenue
+                    }
+
+                    resData["analyze"] = productItemsList
+                }
+            }
+        }
+        while (processYear >= yearFirstPublish)
 
         // const productItems = dom.querySelectorAll('.GridHeader')
         // console.log(productItems.length)
@@ -175,206 +657,59 @@ async function getDashBoardInfo() {
 
         dom = new JSDOM(textEarningHTML).window.document
 
-        console.log("Earning")
+        // console.log("Earning")
+
+        let earningNationals = []
 
         for (const nation of nationSales) {
             const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
             const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
 
-            console.log(`${nation}`)
-            console.log(`   Sold Value: ${soldValue}`)
-            console.log(`   Royalties Element: ${royaltiesValue}`)
-        }
-
-        // All Item Month
-        const monthItems = dom.querySelector('tbody')
-        const monthItemsList = monthItems.querySelectorAll('tr')
-        console.log(`Length ${monthItemsList.length}`)
-
-        let earningLists = []
-
-        for (let i = 0; i < monthItemsList.length; i++) {
-            const item = monthItemsList[i]
-            const monthElement = item.querySelector(`#record-${i}-month`).textContent
-            const grossEarningElement = item.querySelector(`#record-${i}-gross`).textContent
-            const adjustmentElement = item.querySelector(`#record-${i}-adjustments`).textContent
-            const earningBeforeTaxElement = item.querySelector(`#record-${i}-net`).textContent
-
-
-            console.log(`${monthElement}`)
-            console.log(`   Gross Earning: ${grossEarningElement}`)
-            console.log(`   Adjust: ${adjustmentElement}`)
-            console.log(`   Earning Before Text: ${earningBeforeTaxElement}`)
-
-            earningLists.push({
-                month: monthElement,
-                gross: grossEarningElement,
-                adjust: adjustmentElement,
-                earningBeforeTax: earningBeforeTaxElement
+            // console.log(`${nation}`)
+            // console.log(`   Sold Value: ${soldValue}`)
+            // console.log(`   Royalties Element: ${royaltiesValue}`)
+            earningNationals.push({
+                nation: nation,
+                sold: soldValue,
+                royalties: royaltiesValue
             })
         }
 
-        /**
-         * Manage Page
-         */
-        let responseManage = await page.goto(urlManage, { waitUntil: 'load', timeout: 0 });
-        await page.setDefaultNavigationTimeout(60000);
+        let earningLists = []
 
-        // Wait Page Loaded - Find First Item
-        while (true) {
-            await sleep(1000)
-            const detectLoadedEle = await page.$('table.table > tr')
-            if (detectLoadedEle != null) {
-                break
-            }
-            count += 1
+        for (let i = 0; i < curYear - yearFirstPublish; i++) {
+            // All Item Month
+            const monthItems = dom.querySelector('tbody')
+            const monthItemsList = monthItems.querySelectorAll('tr')
+                // console.log(`Length ${monthItemsList.length}`)
 
-            if (count == 30) {
-                return
+
+            for (let i = 0; i < monthItemsList.length; i++) {
+                const item = monthItemsList[i]
+                const monthElement = item.querySelector(`#record-${i}-month`).textContent
+                const grossEarningElement = item.querySelector(`#record-${i}-gross`).textContent
+                const adjustmentElement = item.querySelector(`#record-${i}-adjustments`).textContent
+                const earningBeforeTaxElement = item.querySelector(`#record-${i}-net`).textContent
+
+                // console.log(`${monthElement}`)
+                // console.log(`   Gross Earning: ${grossEarningElement}`)
+                // console.log(`   Adjust: ${adjustmentElement}`)
+                // console.log(`   Earning Before Text: ${earningBeforeTaxElement}`)
+
+                earningLists.push({
+                    month: monthElement,
+                    gross: grossEarningElement,
+                    adjust: adjustmentElement,
+                    earningBeforeTax: earningBeforeTaxElement
+                })
             }
         }
 
-        await sleep(1000)
-
-        let textManageHTML = await page.content()
-
-        dom = new JSDOM(textManageHTML).window.document
-
-        const productItems = dom.querySelector('table')
-        const productItemsList = productItems.querySelectorAll('tr')
-
-        let productsList = []
-
-        console.log(`Product Length ${productItemsList.length}`)
-
-        // ID 
-
-        /**
-         * img
-         * title
-         * mkt
-         * type
-         * status
-         * createAt
-         * price
-         * status
-         * 
-         * */
-
-        for (let i = 0; i < productItemsList.length; i++) {
-            const item = productItemsList[i]
-
-            const trEle = `table[class="table"] > tr:nth-child(${i+2})`
-
-            const mktEle = 'td:nth-child(1)'
-
-            const imgEle = 'td:nth-child(2) > img' // src
-            const titleEle = 'td:nth-child(2) > span > i'
-            const brandEle = trEle + ' > td:nth-child(3)'
-            const typeEle = trEle + ' > td:nth-child(4)'
-            const createdAtEle = trEle + ' > td:nth-child(5) > div'
-            const priceAtEle = trEle + ' > td:nth-child(6)'
-            const statusEle = trEle + ' > td:nth-child(7) > div'
-
-            const mkt = item.querySelector(mktEle)
-                // const title = item.querySelector(mktEle).textContent
-                // const brand = item.querySelector(mktEle).textContent
-
-            console.log(`MKT ${JSON.stringify(mkt)}`)
-
-            // const title = await getText(page, titleEle)
-            // const brand = await getText(page, brandEle)
-            // const type = await getText(page, typeEle)
-            // const createdAt = await getText(page, createdAtEle)
-            // const price = await getText(page, priceAtEle)
-            // const status = await getText(page, statusEle)
-
-            // const img = await page.evaluate((sel) => {
-            //     return document.querySelector(sel).getAttribute('src')
-            // }, imgEle)
-
-            // const product = {
-            //     img: img,
-            //     mkt: mkt,
-            //     title: title,
-            //     brand: brand,
-            //     type: type,
-            //     createdAt: createdAt,
-            //     price: price,
-            //     status: status
-            // }
-
-            // products.push(product)
-        }
 
 
-        // Filter Product
-        const mktList = [
-            "US",
-            "GB",
-            "DE",
-            "FR",
-            "IT",
-            "ES",
-            "JP"
-        ]
-
-        const warningText = 'class="warning-text"'
-
-        // Click to Skip All
-        await page.click('button[id="MarketplaceDropdown"]')
-        await page.click(`flowcheckbox[class="mr-2 checkbox-all"]`)
-
-        let itemMktList = []
-
-        // Market
-        // await page.click('class="btn btn-secondary dropdown-toggle"')
-
-        for (let i = 0; i < mktList.length; i++) {
-
-            const mkt = mktList[i]
-
-            // await page.click('button[id="MarketplaceDropdown"]')
-            if (i != 0) {
-                const beforeMkt = mktList[i - 1]
-                await page.click(`flowcheckbox[class="mr-2 checkbox-${beforeMkt}"]`)
-            }
-
-            await page.click(`flowcheckbox[class="mr-2 checkbox-${mkt}"]`)
-
-            let isExistItem = true
-
-            // Wait to load Page    
-            while (true) {
-                await sleep(1000)
-                const detectLoadedEle = await page.$('table.table > tr')
-                if (detectLoadedEle != null) {
-                    break
-                }
-
-                const detectWarning = await page.$('span[class="warning-text"]')
-                if (detectLoadedEle != null) {
-                    isExistItem = falses
-                    break
-                }
-            }
-
-            if (!isExistItem) {
-                continue;
-            }
-
-            let textManageHTML = await page.content()
-
-            dom = new JSDOM(textManageHTML).window.document
-
-            const productItems = dom.querySelector('table')
-            const productItemsList = productItems.querySelectorAll('tr')
-
-            console.log(`Product Length ${productItemsList.length}`)
-
-            // itemMktList.push({
-
-            // })
+        resData["earning"] = {
+            national: earningNationals,
+            all: earningLists
         }
 
         /**
@@ -390,11 +725,11 @@ async function getDashBoardInfo() {
             if (detectLoadedEle != null) {
                 break
             }
-            count += 1
+            // count += 1
 
-            if (count == 30) {
-                return
-            }
+            // if (count == 30) {
+            //     return
+            // }
         }
 
         await sleep(1000)
@@ -403,20 +738,48 @@ async function getDashBoardInfo() {
 
         dom = new JSDOM(textDashBoardHTML).window.document
 
-        // Tier
-            'div["class="row pb-large account-status-container"]'
 
+        // Tier
+
+        const tierEle = dom.querySelector('.card-header > h4').textContent
+            // console.log("Tier " + tierEle)
+
+        //    'div["class="row pb-large account-status-container"]'
         // Submitted Today
+        const submitTodaySelector = dom.querySelector('.card > .card-body > .row > div:nth-child(1)')
+        const uploadedToday = submitTodaySelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
+        const percentUploadedToday = submitTodaySelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
 
         // Published Designs
+        const publishSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(2)')
+        const publishDesignedEle = publishSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
+        const percentPublishDesignedEle = publishSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
 
         // Product Potential
+        const poentialSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(1)')
+        const poentialEle = poentialSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
+        const percentPotential = poentialSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
+
+        const statusDashboard = {
+            submit: {
+                submit: uploadedToday,
+                percentSubmit: percentUploadedToday
+            },
+            publish: {
+                publish: publishDesignedEle,
+                percentPublish: percentPublishDesignedEle
+            },
+            potential: {
+                potential: poentialEle,
+                percentPotential: percentPotential
+            }
+        }
 
         // Last 7 days
 
         let itemSevenDaysList = []
 
-        console.log("Last 7 days")
+        // console.log("Last 7 days")
 
         /**
          * Get Sales in last 7 days
@@ -425,20 +788,61 @@ async function getDashBoardInfo() {
             const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
             const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
 
-            console.log(`${nation}`)
-            console.log(`   Sold Value: ${soldValue}`)
-            console.log(`   Royalties Element: ${royaltiesValue}`)
+            // console.log(`${nation}`)
+            // console.log(`   Sold Value: ${soldValue}`)
+            // console.log(`   Royalties Element: ${royaltiesValue}`)
             itemSevenDaysList.push({
                 sold: soldValue,
                 royalties: royaltiesValue
             })
         }
 
+        resData["dashboard"] = {
+            status: statusDashboard,
+            recentSales: itemSevenDaysList
+        }
+
+        const btnAccountSelector = 'div[class="account-popover"] > button[class="btn-account-popover"]'
+        const btnYourAccount = await page.waitForSelector(btnAccountSelector)
+        if (btnYourAccount != null) {
+            await page.click(btnAccountSelector)
+
+            const btnManageAccountSelector = 'a[id="manage-account-link"]'
+            const btnManageAccount = await page.waitForSelector(btnManageAccountSelector)
+
+            if (btnManageAccount != null) {
+                await page.click(btnManageAccountSelector)
+
+                // GO TO ACCOUNT PAGE
+                const tvNameAccountSelector = 'div[class="a-row a-size-base-plus auth-text-truncate"]'
+                const tvNameAccountEle = await page.waitForSelector(tvNameAccountSelector)
+
+                if (tvNameAccountEle != null) {
+                    const tvNameAccount = await page.evaluate(el => el.textContent, tvNameAccountEle)
+                    console.log("Name Account: " + tvNameAccount)
+                }
+
+                const tvUserNameAccountSelector = 'div[class="a-row a-size-base a-color-tertiary auth-text-truncate"]'
+                const tvUserNameAccountEle = await page.waitForSelector(tvUserNameAccountSelector)
+
+                if (tvUserNameAccountEle != null) {
+                    const tvUserNameAccount = await page.evaluate(el => el.textContent, tvUserNameAccountEle)
+                    console.log("UserName Account: " + tvUserNameAccount)
+                }
+            }
+        }
+
+        // Write File Data
+        fs.writeFile("C:\\Users\\Admin\\test.txt", JSON.stringify(resData), (err) => {
+            if (err) console.log(err);
+            else {
+                console.log("File written successfully\n");
+            }
+        });
+
         await page.close()
 
         // browser.close()
-
-
 
         // await page.evaluate(() => {
         //     const tds = Array.from(document.querySelectorAll('.GridHeader td'))
@@ -450,15 +854,6 @@ async function getDashBoardInfo() {
 
         // const listPrice = dom.querySelectorAll('')
 
-
-        // // Write File Data
-        // fs.writeFile("C:\\Users\\Admin\\test.txt", html, (err) => {
-        //     if (err) console.log(err);
-        //     else {
-        //         console.log("File written successfully\n");
-        //     }
-        // });
-
         // Date Picker To aria-labelledby="datepicker-to"
         // Date Picker From aria-labelledby="datepicker-from"
         // Button Go class="btn btn-secondary h-100 font-weight-bold ml-base"
@@ -466,8 +861,6 @@ async function getDashBoardInfo() {
         // Date class="ngb-dp-day", aria-label="Friday, April 1, 2022"
 
         // Day class="ngb-dp-day"
-
-
 
         // let element = await page.waitForSelector('account-status-v2 > div > div > div > div:nth-child(1) > h4')
         //     // Get Tier
