@@ -266,6 +266,8 @@ async function getDashBoardInfo() {
                     const priceAtEle = 'td:nth-child(6)'
                     const statusEle = 'td:nth-child(7) > div'
 
+                    let isSaleProduct = false
+
                     if (i != 0) {
                         const mkt = item.querySelector(mktEle).textContent
                         const img = item.querySelector(imgEle).getAttribute('src')
@@ -298,7 +300,9 @@ async function getDashBoardInfo() {
                             asin: asin
                         }
 
-                        allProducts.push(product)
+                        if (status == STATUS_LIVE) {
+                            allProducts.push(product)
+                        }
                     }
                 }
 
@@ -486,7 +490,7 @@ async function getDashBoardInfo() {
 
                     dateFirstPublish = date
                     monthFirstPublish = month
-                    yearFirstPublish = year
+                    yearFirstPublish = "20" + year
 
                     console.log("Month " + month)
                     console.log("Date " + date)
@@ -524,57 +528,210 @@ async function getDashBoardInfo() {
          * 
          */
 
-        // Click To div[class = "input-group-prepend"] > span
-
         const dateFromEle = 'div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(2) > div > div > span'
         const dateToEle = `div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(4) > div > div > span`
+        const btnPreviousMonth = 'button[aria-label="Previous month"]'
+        const yesterdayEle = 'div[class="btn-light bg-primary text-white"]'
+        let yesterdaySelector = "1"
 
-        const processYear = curYear
+        let processYear = curYear
+        let processMonth = 1
+        let processDay = 1
 
+        let isFirst = true
+
+        /**
+         * Loop Each Months to get Sale 
+         * @implements if fisrt => get Date current, Month current, Year current
+         */
         do {
+            /**
+             * Click Date To
+             */
             await page.click(dateToEle)
 
-            const textHTML = await page.content()
+            if (isFirst) {
 
-            dom = new JSDOM(textHTML).window.document
+                await sleep(1000)
+
+                const textHTML = await page.content()
+
+                dom = new JSDOM(textHTML).window.document
+
+                /**
+                 * Get Yesterday - Date To
+                 */
+                yesterdaySelector = dom.querySelector(yesterdayEle).textContent
+                console.log("Yesterday " + yesterdaySelector)
+
+                const monthToElement = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
+                const monthTo = monthToElement.textContent
+
+                const monthTextEle = monthTo.match(/\S+/g)
+
+                processMonth = monthTextEle[0]
+                processYear = monthTextEle[1]
+                processDay = parseInt(yesterdaySelector)
+
+                console.log("To: " + processYear)
+
+                // Click Date Picker From
+                await page.click(dateFromEle)
+
+                const monthFromElement = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
+                const monthFrom = monthFromElement.textContent
+
+                const monthFromText = monthFrom.match(/\S+/g)[0]
+                const yearFromText = monthFrom.match(/\S+/g)[1]
+
+                console.log("From: Month " + monthFromText + " Year " + yearFromText)
+
+                const eleYesterdaySelector = `//div[contains(text(), "${processDay}")]`
+
+                /**
+                 * Different Month => Click the nearest date with yesterday
+                 */
+                if (processMonth != monthFromText) {
+                    // await button.click()
+
+                    await page.waitForXPath(eleYesterdaySelector);
+                    const [button] = await page.$x(eleYesterdaySelector);
+
+                    if (button != null) {
+                        await button.click()
+                    }
+
+                } else {
+
+                    await page.click(btnPreviousMonth)
+
+                    /**
+                     * Wait For XPath Selector
+                     */
+                    await page.waitForXPath(eleYesterdaySelector);
+                    const [button] = await page.$x(eleYesterdaySelector);
+                    if (button != null) {
+                        await button.click()
+                    } else {
+
+                        // If processDay not exist in previous month 
+                        const yesterdayNum = processDay
+                        for (let i = yesterdayNum - 1; i >= 1; i++) {
+                            await page.waitForXPath(eleYesterdaySelector);
+                            const eleDetect = await page.$x(`//div[contains(text(), "${i}")]`);
+                            if (eleDetect != null) {
+                                await eleDetect.click()
+                                processDay = i
+                                break
+                            }
+                        }
+                    }
+                }
+
+                // Update isFirst
+                isFirst = false
+            } else {
+
+                await sleep(1000)
+
+
+                /** 
+                 * Click Previous Month
+                 */
+                await page.click(btnPreviousMonth)
+
+                const textHTML = await page.content()
+
+                dom = new JSDOM(textHTML).window.document
+
+                /**
+                 * Update Month, Year
+                 */
+                const monthToElement = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
+                const monthTo = monthToElement.textContent
+                const monthTextEle = monthTo.match(/\S+/g)
+                processMonth = monthTextEle[0]
+                processYear = monthTextEle[1]
+
+                console.log("Process Year " + processYear)
+
+                // const [button] = await page.$x(`//div[class="btn-light" contains(., "${yesterdaySelector}")]`);
+                // if (button) {
+                //     await button.click();
+                // }
+                /**
+                 * Click Date in Date Picker To
+                 */
+                let eleYesterdaySelector = `//div[contains(text(), "${processDay}")]`
+                await page.waitForXPath(eleYesterdaySelector);
+                const [eleDetect] = await page.$x(eleYesterdaySelector);
+
+                if (eleDetect != null) {
+                    await eleDetect.click()
+                } else {
+                    /**
+                     * Click Date in DatePicker - To
+                     */
+
+                    for (let i = processDay - 1; i >= 1; i++) {
+                        eleYesterdaySelector = `//div[contains(text(), "${i}")]`
+                        await page.waitForXPath(eleYesterdaySelector);
+                        const eleDetect = await page.$x(eleYesterdaySelector);
+                        if (eleDetect != null) {
+                            await eleDetect.click()
+                            processDay = i
+                            break
+                        }
+                    }
+                }
+
+                // Click Date Picker From
+                await page.click(dateFromEle)
+
+                /**
+                 * Click Previous Month
+                 */
+                await page.click(btnPreviousMonth)
+
+                await page.waitForXPath(eleYesterdaySelector);
+                const [button] = await page.$x(eleYesterdaySelector);
+
+                if (button != null) {
+                    await button.click()
+                } else {
+                    for (let i = processDay - 1; i >= 1; i++) {
+                        eleYesterdaySelector = `//div[contains(text(), "${i}")]`
+                        await page.waitForXPath(eleYesterdaySelector);
+                        const eleDetect = await page.$x(eleYesterdaySelector);
+                        if (eleDetect != null) {
+                            await eleDetect.click()
+                            processDay = i
+                            break
+                        }
+                    }
+                }
+
+                processMonth -= 1
+            }
+
 
             // Get date yesterday 
-            const yesterdayEle = 'div[class="btn-light bg-primary text-white"]'
-
-            const yesterdaySelector = await dom.querySelector(yesterdayEle).textContent
-
-            console.log("Yesterday " + yesterdaySelector)
 
             // Get To     
-            const datePickerFromEle = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
-            const dateFrom = datePickerFromEle.textContent
-            console.log("Date to " + dateFrom)
 
             // Get To 
             // const datePickerToEle = dom.querySelector('input[aria-labelledby="datepicker-to"]')
             // const dateYesterday = datePickerToEle.value
             // console.log("Yesterday " + dateYesterday)
 
-
             // Get This Month
+
+            /**
+             * Get Data 
+             */
+
             if (yesterdaySelector != null) {
                 const dateYesterday = await page.evaluate(el => el.textContent, yesterdaySelector)
-
-                // console.log("Yesterday " + dateYesterday)
-
-                await page.click(dateFromEle)
-
-
-                const textHTML = await page.content()
-
-                dom = new JSDOM(textHTML).window.document
-
-                // Get To   
-                const datePickerFromEle = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
-                const dateFrom = datePickerFromEle.textContent
-                console.log("From Date " + dateFrom)
-
-                await page.click('div[tabindex="0"]')
 
                 await page.click('button[class="btn btn-secondary h-100 font-weight-bold ml-base"]')
 
@@ -596,6 +753,8 @@ async function getDashBoardInfo() {
                     }
                 }
 
+                await sleep(1000)
+
                 if (isExistProductMonth) {
                     let textAnalyzeMonth = await page.content()
 
@@ -605,28 +764,36 @@ async function getDashBoardInfo() {
                     const productItemsList = productItems.querySelectorAll('tr')
 
                     for (const item of productItemsList) {
+
                         // Mkt
+                        // const mkt = item.querySelector()
 
                         // Title
+                        // const title = item.querySelector()
 
                         // Product Type
+                        // const type = item.querySelector()
 
                         // Purchased
+                        // const purchased = item.querySelector()
 
                         // Cancelled
+                        // const cancelled = item.querySelector()
 
                         // Returned
+                        // const returned = item.querySelector()
 
                         // Revenue
+                        // const revenue = item.querySelector()
 
-                        // Revenue
                     }
 
                     resData["analyze"] = productItemsList
                 }
             }
+            console.log("Process " + processYear + " " + yearFirstPublish)
         }
-        while (processYear >= yearFirstPublish)
+        while (parseInt(processYear) >= parseInt(yearFirstPublish))
 
         // const productItems = dom.querySelectorAll('.GridHeader')
         // console.log(productItems.length)
@@ -686,10 +853,10 @@ async function getDashBoardInfo() {
 
             for (let i = 0; i < monthItemsList.length; i++) {
                 const item = monthItemsList[i]
-                const monthElement = item.querySelector(`#record-${i}-month`).textContent
-                const grossEarningElement = item.querySelector(`#record-${i}-gross`).textContent
-                const adjustmentElement = item.querySelector(`#record-${i}-adjustments`).textContent
-                const earningBeforeTaxElement = item.querySelector(`#record-${i}-net`).textContent
+                const monthElement = item.querySelector(`#record-${i}-month`).textContent.split('')
+                const grossEarningElement = item.querySelector(`#record-${i}-gross`).textContent.split('')
+                const adjustmentElement = item.querySelector(`#record-${i}-adjustments`).textContent.split('')
+                const earningBeforeTaxElement = item.querySelector(`#record-${i}-net`).textContent.split('')
 
                 // console.log(`${monthElement}`)
                 // console.log(`   Gross Earning: ${grossEarningElement}`)
@@ -1100,6 +1267,19 @@ async function getDashBoardInfo() {
 
         // }
     }
+}
+
+function splitSpace(txt) {
+    var string = txt;
+    string = string.split(" ");
+    var stringArray = new Array();
+    for (var i = 0; i < string.length; i++) {
+        stringArray.push(string[i]);
+        if (i != string.length - 1) {
+            stringArray.push(" ");
+        }
+    }
+    return stringArray;
 }
 
 function sleep(ms) {
