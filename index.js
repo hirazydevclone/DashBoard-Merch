@@ -653,7 +653,7 @@ async function getDashBoardInfo() {
                 processMonth = monthTextEle[0]
                 processYear = monthTextEle[1]
 
-                console.log("Process Year " + processYear)
+                console.log("Process Month " + processMonth)
 
                 // const [button] = await page.$x(`//div[class="btn-light" contains(., "${yesterdaySelector}")]`);
                 // if (button) {
@@ -763,37 +763,43 @@ async function getDashBoardInfo() {
                     const productItems = dom.querySelector('tbody')
                     const productItemsList = productItems.querySelectorAll('tr')
 
+                    let listMonthProducts = []
+
                     for (const item of productItemsList) {
 
                         // Mkt
-                        // const mkt = item.querySelector()
+                        // const mkt = item.querySelector('')
 
-                        // Title
-                        // const title = item.querySelector()
+                        // // Title
+                        // const title = item.querySelector('')
 
-                        // Product Type
-                        // const type = item.querySelector()
+                        // // Product Type
+                        // const type = item.querySelector('')
 
-                        // Purchased
+                        // // Purchased
                         // const purchased = item.querySelector()
 
-                        // Cancelled
+                        // // Cancelled
                         // const cancelled = item.querySelector()
 
-                        // Returned
+                        // // Returned
                         // const returned = item.querySelector()
 
-                        // Revenue
+                        // // Revenue
                         // const revenue = item.querySelector()
 
+                        // listMonthProducts.push({
+                        // })
                     }
 
-                    resData["analyze"] = productItemsList
+                    resData["analyze"] = {}
                 }
             }
-            console.log("Process " + processYear + " " + yearFirstPublish)
+            console.log("Process Month " + monthFirstPublish + " " + getNumberOfMonth(processMonth))
         }
-        while (parseInt(processYear) >= parseInt(yearFirstPublish))
+        while (parseInt(processYear) > parseInt(yearFirstPublish) ||
+            (parseInt(processYear) == parseInt(yearFirstPublish) &&
+                parseInt(monthFirstPublish) - 1 <= getNumberOfMonth(processMonth)))
 
         // const productItems = dom.querySelectorAll('.GridHeader')
         // console.log(productItems.length)
@@ -832,9 +838,6 @@ async function getDashBoardInfo() {
             const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
             const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
 
-            // console.log(`${nation}`)
-            // console.log(`   Sold Value: ${soldValue}`)
-            // console.log(`   Royalties Element: ${royaltiesValue}`)
             earningNationals.push({
                 nation: nation,
                 sold: soldValue,
@@ -844,35 +847,62 @@ async function getDashBoardInfo() {
 
         let earningLists = []
 
-        for (let i = 0; i < curYear - yearFirstPublish; i++) {
+        let isFirstLoadSales = true
+
+        for (let i = 0; i <= curYear - yearFirstPublish; i++) {
+
+            if (!isFirstLoadSales) {
+                const btnYearDropDownSelector = `button[class="btn btn-secondary dropdown-toggle"]`
+                await page.click(btnYearDropDownSelector)
+
+                const btnYearDropDownItemSelector = `div[class="dropdown-menu show"] > label:nth-child(${i+1})`
+                await page.click(btnYearDropDownItemSelector)
+
+                while (true) {
+                    await sleep(1000)
+                    const detectLoadedEle = await page.$('tbody > tr[id="record-0"] > td[id="record-0-gross"]')
+                    if (detectLoadedEle != null) {
+                        break
+                    }
+                    count += 1
+
+                    if (count == 30) {
+                        return
+                    }
+                }
+            }
+
             // All Item Month
             const monthItems = dom.querySelector('tbody')
             const monthItemsList = monthItems.querySelectorAll('tr')
-                // console.log(`Length ${monthItemsList.length}`)
 
+            console.log('List Month ' + monthItemsList.length)
 
-            for (let i = 0; i < monthItemsList.length; i++) {
-                const item = monthItemsList[i]
-                const monthElement = item.querySelector(`#record-${i}-month`).textContent.split('')
-                const grossEarningElement = item.querySelector(`#record-${i}-gross`).textContent.split('')
-                const adjustmentElement = item.querySelector(`#record-${i}-adjustments`).textContent.split('')
-                const earningBeforeTaxElement = item.querySelector(`#record-${i}-net`).textContent.split('')
+            let tmpListSales = []
 
-                // console.log(`${monthElement}`)
-                // console.log(`   Gross Earning: ${grossEarningElement}`)
-                // console.log(`   Adjust: ${adjustmentElement}`)
-                // console.log(`   Earning Before Text: ${earningBeforeTaxElement}`)
+            for (let j = 0; j < monthItemsList.length; j++) {
 
-                earningLists.push({
+                const item = monthItemsList[j]
+                const monthElement = item.querySelector(`#record-${j}-month`).textContent.trimEnd()
+                const grossEarningElement = item.querySelector(`#record-${j}-gross`).textContent.trimEnd()
+                const adjustmentElement = item.querySelector(`#record-${j}-adjustments`).textContent.trimEnd()
+                const earningBeforeTaxElement = item.querySelector(`#record-${j}-net`).textContent.trimEnd()
+
+                tmpListSales.push({
                     month: monthElement,
                     gross: grossEarningElement,
                     adjust: adjustmentElement,
                     earningBeforeTax: earningBeforeTaxElement
                 })
             }
+
+            earningLists.push({
+                year: curYear - i,
+                sales: tmpListSales
+            })
+
+            isFirstLoadSales = false
         }
-
-
 
         resData["earning"] = {
             national: earningNationals,
@@ -923,7 +953,7 @@ async function getDashBoardInfo() {
         const percentPublishDesignedEle = publishSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
 
         // Product Potential
-        const poentialSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(1)')
+        const poentialSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(3)')
         const poentialEle = poentialSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
         const percentPotential = poentialSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
 
@@ -1008,6 +1038,11 @@ async function getDashBoardInfo() {
         });
 
         await page.close()
+
+        fs.readFile("C:\\Users\\Admin\\test.txt", "utf8", function(err, data) {
+            console.log(JSON.stringify(data))
+
+        })
 
         // browser.close()
 
@@ -1284,6 +1319,16 @@ function splitSpace(txt) {
 
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getNumberOfMonth(numberMonth) {
+    console.log("Number Month " + numberMonth)
+    for (let i = 0; i < months_year.length; i++) {
+        if (numberMonth === months_year[i]) {
+            return i + 1
+        }
+    }
+    return 1
 }
 
 async function getText(page, selector) {
