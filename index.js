@@ -7,6 +7,8 @@ const Hidemyacc = require('./hidemyacc');
 const jsdom = require('jsdom');
 const { JSDOM } = require('jsdom');
 
+const hidemyacc = new Hidemyacc()
+
 const path = require("path");
 const fs = require("fs");
 const { ifError } = require('assert');
@@ -18,7 +20,7 @@ const urlAnalyzeEarning = "https://merch.amazon.com/analyze/earnings"
 const urlAnalyzeProducts = "https://merch.amazon.com/analyze/products"
 
 
-const profileID = "620ddcf8d9863b1f18f2f371"
+const profileID = "6189184ca2acb824458a8911"
 
 const MKT_US = ".com"
 const MKT_UK = ".co.uk"
@@ -110,9 +112,39 @@ const months_year = [
  * All Time
  */
 
-getDashBoardInfo()
+getAllAccountInfo()
 
-async function getDashBoardInfo() {
+async function getAllAccountInfo() {
+    let response = null;
+
+    let index = -1
+    response = await hidemyacc.profiles()
+
+    if (response != null && response.code == 1) {
+
+        const profiles = response.data
+
+        while (true) {
+            index += 1
+            await getDashBoardInfo(profiles[index].id)
+            console.log(profiles[index].id)
+        }
+
+        // const timeInterval = setInterval(async() => {
+        //     index += 1
+        //     console.log(profiles[index].id)
+        //     if (index == profiles.length) {
+        //         clearInterval(timeInterval)
+        //         return
+        //     }
+        //     await getDashBoardInfo(profiles[index].id)
+        // }, 3000)
+    }
+}
+
+// getDashBoardInfo()
+
+async function getDashBoardInfo(id) {
 
     const timeNow = new Date().toLocaleString("en-US", { timeZone: "Pacific/Chatham" });
     const date_nz = new Date(timeNow);
@@ -140,22 +172,69 @@ async function getDashBoardInfo() {
 
     let resData = {}
 
-    const hidemyacc = new Hidemyacc();
+    const responseStatus = await hidemyacc.status();
 
-    const response = await hidemyacc.start(profileID);
+    let isRunning = false;
+    let wsUrlProfile = "";
 
-    if (response.code == 1) {
+    if (responseStatus.code == 1) {
+        const data = responseStatus.data
+        for (const item of data) {
+            if (item.id == id) {
+                if (item.wsUrl != "") {
+                    wsUrlProfile = item.wsUrl
+                } else {
+                    isRunning = false
+                }
+            }
+        }
+    }
 
-        const data = response.data;
+    // If not running
+    if (isRunning == false || wsUrlProfile != "") {
+        let response = null
 
-        const browser = await puppeteer.connect({
-            browserWSEndpoint: data.wsUrl,
-            ignoreHTTPSErrors: true,
-            args: ['--start-maximized'],
-            slowMo: 90,
-        });
-        const page = await browser.newPage();
-        await page._client.send('Emulation.clearDeviceMetricsOverride')
+        if (wsUrlProfile == "") {
+            try {
+                // console.log("Axios")
+                // response = await axios.post(`${baseUrl}/profiles/start/${profileID}`, { timeout: 16 })
+                // .then(res => {     console.log(JSON.stringify(res) );  })
+                // .catch(error => {     console.log("TimeoutCC")  });
+                response = await hidemyacc.start(id);
+
+                const data = response.data
+
+                wsUrlProfile = data.wsUrl
+            } catch (e) {
+                await hidemyacc.stop(id)
+                return;
+            }
+        }
+
+        let browser = null
+
+        try {
+            browser = await puppeteer.connect({
+                browserWSEndpoint: wsUrlProfile,
+                ignoreHTTPSErrors: true,
+                args: ["--start-maximized"],
+                slowMo: 90,
+            });
+        } catch (e) {
+            console.log("Page Error Browser")
+            return;
+        }
+
+        let page = null
+
+        try {
+            page = await browser.newPage();
+
+            await page._client.send("Emulation.clearDeviceMetricsOverride");
+        } catch (e) {
+            console.log("Page Error")
+            return;
+        }
 
         let dom = null
 
@@ -163,7 +242,14 @@ async function getDashBoardInfo() {
          * Manage Page
          */
         let responseManage = await page.goto(urlManage, { waitUntil: 'load', timeout: 0 });
+
+        await sleep(3000)
         await page.setDefaultNavigationTimeout(60000);
+
+        if (await page.$('a[class="link logout-link"]') === null) {
+            await hidemyacc.stop(id)
+            return
+        }
 
         // Number of pages
         let isExistProductItems = true
@@ -412,7 +498,7 @@ async function getDashBoardInfo() {
 
                     const detectWarning = await page.$('span[class="warning-text"]')
                     if (detectWarning != null) {
-                        isExistItem = falses
+                        isExistItem = false
                         break
                     }
                 }
@@ -428,13 +514,11 @@ async function getDashBoardInfo() {
                 const productItems = dom.querySelector('table')
                 const productItemsList = productItems.querySelectorAll('tr')
 
-                console.log(`${statusSelector} ${productItemsList.length}`)
-
                 // console.log(`Product Length ${productItemsList.length}`)
             }
 
             resData["manage"] = {
-                all: allProducts
+                products: allProducts
             }
         }
 
@@ -492,18 +576,19 @@ async function getDashBoardInfo() {
                     monthFirstPublish = month
                     yearFirstPublish = "20" + year
 
-                    console.log("Month " + month)
-                    console.log("Date " + date)
-                    console.log("Year " + year)
                     break
                 }
             }
         }
 
+        if (yearFirstPublish == "") {
+            yearFirstPublish = curYear.toString()
+        }
+
 
         for (const nation of nationSales) {
-            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
-            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
+            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trimEnd()
 
             priceProducts.push({
                 nation: nation,
@@ -544,6 +629,9 @@ async function getDashBoardInfo() {
          * Loop Each Months to get Sale 
          * @implements if fisrt => get Date current, Month current, Year current
          */
+
+        let listMonthProducts = []
+
         do {
             /**
              * Click Date To
@@ -562,6 +650,7 @@ async function getDashBoardInfo() {
                  * Get Yesterday - Date To
                  */
                 yesterdaySelector = dom.querySelector(yesterdayEle).textContent
+
                 console.log("Yesterday " + yesterdaySelector)
 
                 const monthToElement = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
@@ -573,10 +662,15 @@ async function getDashBoardInfo() {
                 processYear = monthTextEle[1]
                 processDay = parseInt(yesterdaySelector)
 
-                console.log("To: " + processYear)
-
                 // Click Date Picker From
                 await page.click(dateFromEle)
+
+                await sleep(1000)
+
+                // Reload HTML INPUT
+                const textDateFrom = await page.content()
+
+                dom = new JSDOM(textDateFrom).window.document
 
                 const monthFromElement = dom.querySelector('ngb-datepicker-navigation > div[class="ngb-dp-month-name"]')
                 const monthFrom = monthFromElement.textContent
@@ -584,23 +678,22 @@ async function getDashBoardInfo() {
                 const monthFromText = monthFrom.match(/\S+/g)[0]
                 const yearFromText = monthFrom.match(/\S+/g)[1]
 
-                console.log("From: Month " + monthFromText + " Year " + yearFromText)
-
-                const eleYesterdaySelector = `//div[contains(text(), "${processDay}")]`
+                const eleYesterdaySelector = `//div[text()="${processDay}"]`
 
                 /**
                  * Different Month => Click the nearest date with yesterday
                  */
                 if (processMonth != monthFromText) {
-                    // await button.click()
 
                     await page.waitForXPath(eleYesterdaySelector);
                     const [button] = await page.$x(eleYesterdaySelector);
 
                     if (button != null) {
                         await button.click()
-                    }
+                    } else {
+                        console.log("processMonth " + eleYesterdaySelector)
 
+                    }
                 } else {
 
                     await page.click(btnPreviousMonth)
@@ -618,7 +711,7 @@ async function getDashBoardInfo() {
                         const yesterdayNum = processDay
                         for (let i = yesterdayNum - 1; i >= 1; i++) {
                             await page.waitForXPath(eleYesterdaySelector);
-                            const eleDetect = await page.$x(`//div[contains(text(), "${i}")]`);
+                            const eleDetect = await page.$x(`//div[text()="${i}"]`);
                             if (eleDetect != null) {
                                 await eleDetect.click()
                                 processDay = i
@@ -653,7 +746,7 @@ async function getDashBoardInfo() {
                 processMonth = monthTextEle[0]
                 processYear = monthTextEle[1]
 
-                console.log("Process Month " + processMonth)
+                console.log("Month " + processMonth + " Year " + processYear)
 
                 // const [button] = await page.$x(`//div[class="btn-light" contains(., "${yesterdaySelector}")]`);
                 // if (button) {
@@ -662,7 +755,7 @@ async function getDashBoardInfo() {
                 /**
                  * Click Date in Date Picker To
                  */
-                let eleYesterdaySelector = `//div[contains(text(), "${processDay}")]`
+                let eleYesterdaySelector = `//div[text()="${processDay}"]`
                 await page.waitForXPath(eleYesterdaySelector);
                 const [eleDetect] = await page.$x(eleYesterdaySelector);
 
@@ -674,9 +767,10 @@ async function getDashBoardInfo() {
                      */
 
                     for (let i = processDay - 1; i >= 1; i++) {
-                        eleYesterdaySelector = `//div[contains(text(), "${i}")]`
+                        eleYesterdaySelector = `//div[text()="${i}"]`
                         await page.waitForXPath(eleYesterdaySelector);
                         const eleDetect = await page.$x(eleYesterdaySelector);
+                        console.log("Index" + i)
                         if (eleDetect != null) {
                             await eleDetect.click()
                             processDay = i
@@ -693,17 +787,17 @@ async function getDashBoardInfo() {
                  */
                 await page.click(btnPreviousMonth)
 
-                await page.waitForXPath(eleYesterdaySelector);
+                // await page.waitForXPath(eleYesterdaySelector);
                 const [button] = await page.$x(eleYesterdaySelector);
 
                 if (button != null) {
                     await button.click()
                 } else {
                     for (let i = processDay - 1; i >= 1; i++) {
-                        eleYesterdaySelector = `//div[contains(text(), "${i}")]`
-                        await page.waitForXPath(eleYesterdaySelector);
-                        const eleDetect = await page.$x(eleYesterdaySelector);
-                        if (eleDetect != null) {
+                        eleYesterdaySelector = `//div[text()="${i}"]`
+                        const [eleDetect] = await page.$x(eleYesterdaySelector);
+                        if (eleDetect.length != 0) {
+                            await page.waitForXPath(eleYesterdaySelector);
                             await eleDetect.click()
                             processDay = i
                             break
@@ -746,7 +840,7 @@ async function getDashBoardInfo() {
                         break
                     }
 
-                    const detectItems = await page.$('tbody > tr')
+                    const detectItems = await page.$('tbody > tr[id="record-0"]')
                     if (detectItems != null) {
                         isExistProductMonth = true
                         break
@@ -763,43 +857,94 @@ async function getDashBoardInfo() {
                     const productItems = dom.querySelector('tbody')
                     const productItemsList = productItems.querySelectorAll('tr')
 
-                    let listMonthProducts = []
+                    const mktEle = 'td:nth-child(1)'
+                    const titleEle = 'td:nth-child(2) > a'
+                    const typeEle = 'td:nth-child(3)'
+                    const purchasedEle = 'td:nth-child(4)'
+                    const cancelledEle = 'td:nth-child(5)'
+                    const returnedEle = 'td:nth-child(6)'
+                    const revenueEle = 'td:nth-child(7)'
+                    const royaltiesEle = 'td:nth-child(8)'
+
+                    const variationItem = 'variation'
+
+                    const dateTime = dom.querySelector('div[class="flow-typography-small-secondary"] > span:nth-child(2)').textContent
+
+                    let listMonth = {
+                        time: dateTime,
+                        products: []
+                    }
 
                     for (const item of productItemsList) {
 
-                        // Mkt
-                        // const mkt = item.querySelector('')
+                        if (item.id.includes(variationItem)) {
+                            continue
+                        }
 
-                        // // Title
-                        // const title = item.querySelector('')
+                        console.log("Item Id " + item.id)
 
-                        // // Product Type
-                        // const type = item.querySelector('')
+                        //Mkt
+                        const mkt = item.querySelector(mktEle).textContent
 
-                        // // Purchased
-                        // const purchased = item.querySelector()
+                        // Title
+                        const title = item.querySelector(titleEle).textContent
 
-                        // // Cancelled
-                        // const cancelled = item.querySelector()
+                        // Product Type
+                        const type = item.querySelector(typeEle).textContent
 
-                        // // Returned
-                        // const returned = item.querySelector()
+                        // Purchased
+                        const purchased = parseInt(item.querySelector(purchasedEle).textContent)
 
-                        // // Revenue
-                        // const revenue = item.querySelector()
+                        // Cancelled
+                        const cancelled = parseInt(item.querySelector(cancelledEle).textContent)
 
-                        // listMonthProducts.push({
-                        // })
+                        // Returned
+                        const returned = parseInt(item.querySelector(returnedEle).textContent)
+
+                        // Revenue
+                        const revenueText = item.querySelector(revenueEle).textContent
+                        let revenue = parseFloat(revenueText.match(/\S+/g)[1])
+                        if (revenueText.startsWith('-')) {
+                            revenue *= -1
+                        }
+
+                        // Royalties
+                        const royaltiesText = item.querySelector(royaltiesEle).textContent
+                        let royalties = parseFloat(royaltiesText.match(/\S+/g)[1])
+                        if (royaltiesText.startsWith('-')) {
+                            royalties *= -1
+                        }
+
+                        // Asin 
+                        const asin = item.querySelector(titleEle).getAttribute('href')
+
+                        listMonth.products.push({
+                            mkt: mkt,
+                            title: title,
+                            type: type,
+                            purchased: purchased,
+                            cancelled: cancelled,
+                            returned: returned,
+                            revenue: revenue,
+                            royalties: royalties,
+                            asin: asin
+                        })
                     }
 
-                    resData["analyze"] = {}
+                    if (listMonth.products.length != 0) {
+                        listMonthProducts.push(listMonth)
+                    }
                 }
             }
-            console.log("Process Month " + monthFirstPublish + " " + getNumberOfMonth(processMonth))
         }
         while (parseInt(processYear) > parseInt(yearFirstPublish) ||
             (parseInt(processYear) == parseInt(yearFirstPublish) &&
                 parseInt(monthFirstPublish) - 1 <= getNumberOfMonth(processMonth)))
+
+        console.log("List Month Products " + listMonthProducts.length)
+        resData["analyze"] = {
+            products: listMonthProducts
+        }
 
         // const productItems = dom.querySelectorAll('.GridHeader')
         // console.log(productItems.length)
@@ -835,8 +980,8 @@ async function getDashBoardInfo() {
         let earningNationals = []
 
         for (const nation of nationSales) {
-            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
-            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
+            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
 
             earningNationals.push({
                 nation: nation,
@@ -849,10 +994,12 @@ async function getDashBoardInfo() {
 
         let isFirstLoadSales = true
 
+        console.log("Year First Publish " + yearFirstPublish)
+
         for (let i = 0; i <= curYear - yearFirstPublish; i++) {
 
             if (!isFirstLoadSales) {
-                const btnYearDropDownSelector = `button[class="btn btn-secondary dropdown-toggle"]`
+                const btnYearDropDownSelector = `button[id="yearDropdown"]`
                 await page.click(btnYearDropDownSelector)
 
                 const btnYearDropDownItemSelector = `div[class="dropdown-menu show"] > label:nth-child(${i+1})`
@@ -872,21 +1019,23 @@ async function getDashBoardInfo() {
                 }
             }
 
+            let textEarningHTML = await page.content()
+
+            dom = new JSDOM(textEarningHTML).window.document
+
             // All Item Month
             const monthItems = dom.querySelector('tbody')
             const monthItemsList = monthItems.querySelectorAll('tr')
-
-            console.log('List Month ' + monthItemsList.length)
 
             let tmpListSales = []
 
             for (let j = 0; j < monthItemsList.length; j++) {
 
                 const item = monthItemsList[j]
-                const monthElement = item.querySelector(`#record-${j}-month`).textContent.trimEnd()
-                const grossEarningElement = item.querySelector(`#record-${j}-gross`).textContent.trimEnd()
-                const adjustmentElement = item.querySelector(`#record-${j}-adjustments`).textContent.trimEnd()
-                const earningBeforeTaxElement = item.querySelector(`#record-${j}-net`).textContent.trimEnd()
+                const monthElement = item.querySelector(`#record-${j}-month`).textContent.trim()
+                const grossEarningElement = item.querySelector(`#record-${j}-gross`).textContent.trim()
+                const adjustmentElement = item.querySelector(`#record-${j}-adjustments`).textContent.trim()
+                const earningBeforeTaxElement = item.querySelector(`#record-${j}-net`).textContent.trim()
 
                 tmpListSales.push({
                     month: monthElement,
@@ -906,7 +1055,7 @@ async function getDashBoardInfo() {
 
         resData["earning"] = {
             national: earningNationals,
-            all: earningLists
+            products: earningLists
         }
 
         /**
@@ -982,8 +1131,8 @@ async function getDashBoardInfo() {
          * Get Sales in last 7 days
          */
         for (const nation of nationSales) {
-            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent
-            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent
+            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
 
             // console.log(`${nation}`)
             // console.log(`   Sold Value: ${soldValue}`)
@@ -994,10 +1143,8 @@ async function getDashBoardInfo() {
             })
         }
 
-        resData["dashboard"] = {
-            status: statusDashboard,
-            recentSales: itemSevenDaysList
-        }
+        let tvNameAccount = ''
+        let tvUserNameAccount = ''
 
         const btnAccountSelector = 'div[class="account-popover"] > button[class="btn-account-popover"]'
         const btnYourAccount = await page.waitForSelector(btnAccountSelector)
@@ -1010,41 +1157,138 @@ async function getDashBoardInfo() {
             if (btnManageAccount != null) {
                 await page.click(btnManageAccountSelector)
 
-                // GO TO ACCOUNT PAGE
-                const tvNameAccountSelector = 'div[class="a-row a-size-base-plus auth-text-truncate"]'
-                const tvNameAccountEle = await page.waitForSelector(tvNameAccountSelector)
+                await page.setDefaultNavigationTimeout(60000);
 
-                if (tvNameAccountEle != null) {
-                    const tvNameAccount = await page.evaluate(el => el.textContent, tvNameAccountEle)
-                    console.log("Name Account: " + tvNameAccount)
+                let isCheckAuth = false
+
+                // Check
+                while (true) {
+                    if (await page.$('div[class="a-row a-size-base-plus auth-text-truncate"]') != null) {
+                        break
+                    }
+
+                    if (await page.$('div[class="col-12 col-md-6"] > input[id="address-email"]') != null) {
+                        isCheckAuth = true
+                        break
+                    }
                 }
 
-                const tvUserNameAccountSelector = 'div[class="a-row a-size-base a-color-tertiary auth-text-truncate"]'
-                const tvUserNameAccountEle = await page.waitForSelector(tvUserNameAccountSelector)
+                // GO TO ACCOUNT PAGE
+                if (!isCheckAuth) {
+                    const tvNameAccountSelector = 'div[class="a-row a-size-base-plus auth-text-truncate"]'
+                    const tvNameAccountEle = await page.waitForSelector(tvNameAccountSelector)
 
-                if (tvUserNameAccountEle != null) {
-                    const tvUserNameAccount = await page.evaluate(el => el.textContent, tvUserNameAccountEle)
-                    console.log("UserName Account: " + tvUserNameAccount)
+                    if (tvNameAccountEle != null) {
+                        tvNameAccount = await page.evaluate(el => el.textContent, tvNameAccountEle)
+                    }
+
+                    const tvUserNameAccountSelector = 'div[class="a-row a-size-base a-color-tertiary auth-text-truncate"]'
+                    const tvUserNameAccountEle = await page.waitForSelector(tvUserNameAccountSelector)
+
+                    if (tvUserNameAccountEle != null) {
+                        tvUserNameAccount = await page.evaluate(el => el.textContent, tvUserNameAccountEle)
+                    }
+                } else {
+                    const tvNameAccountSelector = 'div[class="col-12 col-md-6"] > input[id="address-email"]'
+                    const tvNameAccountEle = await page.waitForSelector(tvNameAccountSelector)
+
+                    if (tvNameAccountEle != null) {
+                        tvNameAccount = await page.evaluate(el => el.textContent, tvNameAccountEle)
+                    }
+
+                    const tvUserNameAccountSelector = 'div[class="col-12 col-md-6"] > input[id="address-name"]'
+                    const tvUserNameAccountEle = await page.waitForSelector(tvUserNameAccountSelector)
+
+                    if (tvUserNameAccountEle != null) {
+                        tvUserNameAccount = await page.evaluate(el => el.textContent, tvUserNameAccountEle)
+                    }
                 }
             }
         }
 
+        resData["dashboard"] = {
+            status: statusDashboard,
+            recentSales: itemSevenDaysList,
+        }
+
+        resData["name"] = tvNameAccount.trim()
+
+        resData["username"] = tvUserNameAccount.trim()
+
+        let mapProducts = {}
+
+        /**
+         * Total
+         * Add sold, cancelled, royalties, revenue, purchased
+         */
+        for (const itemMonth of listMonthProducts) {
+            for (const item of itemMonth.products) {
+                if (mapProducts.hasOwnProperty(item.asin)) {
+                    // Add Purchased
+                    mapProducts[item.asin].purchased += item.purchased
+
+                    // Add Revenue
+                    mapProducts[item.asin].revenue += item.revenue
+
+                    // Add Cancelled
+                    mapProducts[item.asin].cancelled += item.cancelled
+
+                    // Add Royalties
+                    mapProducts[item.asin].royalties += item.royalties
+
+                    // Add Sold
+                    mapProducts[item.asin].returned += item.returned
+
+                } else {
+                    mapProducts[item.asin] = item
+
+                    for (const itemManage of resData["manage"].products) {
+                        if (itemManage.asin == item.asin) {
+                            mapProducts[item.asin].img = itemManage.img
+                            mapProducts[item.asin].createdAt = itemManage.createdAt
+                            mapProducts[item.asin].brand = itemManage.brand
+                            mapProducts[item.asin].status = itemManage.status
+                            mapProducts[item.asin].price = itemManage.price
+                        }
+                    }
+                }
+            }
+        }
+
+        // let listProducts = Object.entries(mapProducts);
+        resData["royalties"] = 0
+        resData["purchased"] = 0
+        resData["revenue"] = 0
+        resData["cancelled"] = 0
+        resData["returned"] = 0
+
+        Object.keys(mapProducts)
+            // iterate over them and generate the array
+            .map(function(k) {
+                resData["royalties"] += mapProducts[k].royalties
+                resData["purchased"] += mapProducts[k].purchased
+                resData["revenue"] += mapProducts[k].revenue
+                resData["cancelled"] += mapProducts[k].cancelled
+                resData["returned"] += mapProducts[k].returned
+            });
+
+        resData["overview"] = mapProducts
+
         // Write File Data
-        fs.writeFile("C:\\Users\\Admin\\test.txt", JSON.stringify(resData), (err) => {
+        fs.writeFile(`C:\\Users\\Admin\\TestMerch\\${id}.txt`, JSON.stringify(resData), (err) => {
             if (err) console.log(err);
             else {
                 console.log("File written successfully\n");
             }
         });
 
+        // fs.readFile("C:\\Users\\Admin\\test.txt", "utf8", function(err, data) {
+        //     console.log(JSON.stringify(data))
+        // })
+
         await page.close()
 
-        fs.readFile("C:\\Users\\Admin\\test.txt", "utf8", function(err, data) {
-            console.log(JSON.stringify(data))
-
-        })
-
-        // browser.close()
+        await browser.close()
 
         // await page.evaluate(() => {
         //     const tds = Array.from(document.querySelectorAll('.GridHeader td'))
