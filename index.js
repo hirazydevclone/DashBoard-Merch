@@ -6,12 +6,15 @@ const Hidemyacc = require('./hidemyacc');
 // const { data } = require('cheerio/lib/api/attributes');
 const jsdom = require('jsdom');
 const { JSDOM } = require('jsdom');
+const CronJob = require('cron').CronJob;
 
 const hidemyacc = new Hidemyacc()
 
 const path = require("path");
 const fs = require("fs");
 const { ifError } = require('assert');
+
+
 
 const urlDashBoard = "https://merch.amazon.com/dashboard"
 const urlManage = "https://merch.amazon.com/manage/designs"
@@ -112,6 +115,26 @@ const months_year = [
  * All Time
  */
 
+// var job = new CronJob('00 05 22 * * 1-5', async function() {
+
+//         console.log("Starting")
+
+//         getAllAccountInfo()
+//             /*
+//              * Runs every weekday (Monday through Friday)
+//              * at 11:30:00 AM. It does not run on Saturday
+//              * or Sunday.
+//              */
+//     }, function() {
+//         /* This function is executed when the job stops */
+//         console.log("OK")
+//     },
+//     true, /* Start the job right now */
+//     'Asia/Ho_Chi_Minh' /* Time zone of this job. */
+// );
+
+// job.start();
+
 getAllAccountInfo()
 
 async function getAllAccountInfo() {
@@ -145,6 +168,8 @@ async function getAllAccountInfo() {
 // getDashBoardInfo()
 
 async function getDashBoardInfo(id) {
+
+    hidemyacc.createFolder()
 
     const timeNow = new Date().toLocaleString("en-US", { timeZone: "Pacific/Chatham" });
     const date_nz = new Date(timeNow);
@@ -200,7 +225,7 @@ async function getDashBoardInfo(id) {
                 // response = await axios.post(`${baseUrl}/profiles/start/${profileID}`, { timeout: 16 })
                 // .then(res => {     console.log(JSON.stringify(res) );  })
                 // .catch(error => {     console.log("TimeoutCC")  });
-                response = await hidemyacc.start(id);
+                response = await hidemyacc.start(profileID);
 
                 const data = response.data
 
@@ -585,7 +610,6 @@ async function getDashBoardInfo(id) {
             yearFirstPublish = curYear.toString()
         }
 
-
         for (const nation of nationSales) {
             const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
             const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trimEnd()
@@ -616,6 +640,8 @@ async function getDashBoardInfo(id) {
         const dateFromEle = 'div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(2) > div > div > span'
         const dateToEle = `div[class="col-6 d-flex align-items-center justify-content-end pl-large"] > datepicker:nth-child(4) > div > div > span`
         const btnPreviousMonth = 'button[aria-label="Previous month"]'
+        const btnNextMonth = 'button[aria-label="Next month"]'
+        const btnGo = 'button[class="btn btn-secondary h-100 font-weight-bold ml-base"]'
         const yesterdayEle = 'div[class="btn-light bg-primary text-white"]'
         let yesterdaySelector = "1"
 
@@ -632,9 +658,11 @@ async function getDashBoardInfo(id) {
 
         let listMonthProducts = []
 
+        let detectPrevious = false
+
         do {
             /**
-             * Click Date To
+             * Click Date Picker To
              */
             await page.click(dateToEle)
 
@@ -680,10 +708,19 @@ async function getDashBoardInfo(id) {
 
                 const eleYesterdaySelector = `//div[text()="${processDay}"]`
 
+                // Get Today
+                // const eleTodaySelector = `//div[text()="${processDay}"]`
+
+                // Get Yesterday
+
+                // This Week Sold
+
                 /**
                  * Different Month => Click the nearest date with yesterday
                  */
                 if (processMonth != monthFromText) {
+                    // Next Month
+                    await page.click(btnNextMonth)
 
                     await page.waitForXPath(eleYesterdaySelector);
                     const [button] = await page.$x(eleYesterdaySelector);
@@ -692,10 +729,366 @@ async function getDashBoardInfo(id) {
                         await button.click()
                     } else {
                         console.log("processMonth " + eleYesterdaySelector)
-
                     }
-                } else {
 
+                    await page.click(btnGo)
+
+                    let isExistProductMonth = false
+
+                    while (true) {
+
+                        await sleep(1000)
+
+                        const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                        if (tvWarning != null) {
+                            break
+                        }
+
+                        const detectItems = await page.$('tbody > tr[id="record-0"]')
+                        if (detectItems != null) {
+                            isExistProductMonth = true
+                            break
+                        }
+                    }
+
+                    await sleep(1000)
+
+                    const textHTML = await page.content()
+                    dom = new JSDOM(textHTML).window.document
+
+                    let todaySold = 0
+
+                    // Get Today
+                    for (const nation of nationSales) {
+                        const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+                        const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
+
+                        todaySold += parseInt(soldValue)
+                            // earningNationals.push({
+                            //     nation: nation,
+                            //     sold: soldValue,
+                            //     royalties: royaltiesValue
+                            // })
+                    }
+
+                    /**
+                     * @param todaySold
+                     */
+                    resData["todaySold"] = todaySold
+
+                    let dateYesterday = "31"
+
+                    /**
+                     * Click Date Picker From
+                     */
+                    await page.click(dateFromEle)
+
+                    // Get Yesterday
+                    /**
+                     * Status: Date Picker From
+                     * Yesterday is was the last day of last month
+                     */
+                    if (processDay == 1) {
+                        // Go to Previous Month
+                        await page.click(btnPreviousMonth)
+
+                        // Find Button Enable to Click
+                        for (var i = 31; i >= 1; i--) {
+                            const eleYesterdaySelector = `//div[text()="${i}"]`
+                            const [button] = await page.$x(eleYesterdaySelector);
+                            if (button.length != 0) {
+                                await page.waitForXPath(eleYesterdaySelector);
+                            } else {
+                                continue
+                            }
+
+                            if (button != null) {
+                                dateYesterday = i.toString()
+                                await button.click()
+                                break
+                            }
+                        }
+
+                        // Click Date Picker To
+                        await page.click(dateToEle)
+
+                        // Previous Month
+                        await page.click(btnPreviousMonth)
+
+                        const eleYesterdaySelector = `//div[text()="${dateYesterday}"]`
+                        await page.waitForXPath(eleYesterdaySelector);
+                        const [button] = await page.$x(eleYesterdaySelector);
+
+                        if (button != null) {
+                            await button.click()
+                        }
+
+                        // Reload
+                        await page.click(btnGo)
+
+                        let isExistProductMonth = false
+
+                        while (true) {
+
+                            await sleep(1000)
+
+                            const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                            if (tvWarning != null) {
+                                break
+                            }
+
+                            const detectItems = await page.$('tbody > tr[id="record-0"]')
+                            if (detectItems != null) {
+                                isExistProductMonth = true
+                                break
+                            }
+                        }
+
+                        let yesterdaySold = 0
+
+                        /**
+                         * Reload Dom
+                         */
+                        const textHTML = await page.content()
+                        dom = new JSDOM(textHTML).window.document
+
+                        // Get Yesterday
+                        for (const nation of nationSales) {
+                            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+                            const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
+
+                            yesterdaySold += parseInt(soldValue)
+                        }
+
+                        /**
+                         * @param yesterdaySold
+                         */
+                        resData["yesterdaySold"] = yesterdaySold
+
+                        // Click Date Picker To
+                        await page.click(dateToEle)
+
+                        // Click Next Month
+                        await page.click(btnNextMonth)
+
+                        const eleTodaySelector = `//div[text()="${processDay}"]`
+
+                        await page.waitForXPath(eleTodaySelector);
+                        const [buttonTodayNext] = await page.$x(eleTodaySelector);
+
+                        if (buttonTodayNext != null) {
+                            await buttonTodayNext.click()
+                        } else {
+                            console.log("processMonth " + eleTodaySelector)
+                        }
+
+                    } else {
+                        /**
+                         * Process day different 1
+                         * Status: Date Picker From
+                         */
+
+                        let yesterdaySold = 0
+                        dateYesterday = processDay - 1
+
+                        // // Click Next Month
+                        // await page.click(btnNextMonth)
+
+                        const eleYesterdaySelector = `//div[text()="${dateYesterday}"]`
+                        await page.waitForXPath(eleYesterdaySelector);
+                        const [buttonYesterday] = await page.$x(eleYesterdaySelector);
+                        await buttonYesterday.click()
+
+                        // Click Date Picker To
+                        await page.click(dateToEle)
+                        const eleYesterdayNextSelector = `//div[text()="${dateYesterday}"]`
+                        await page.waitForXPath(eleYesterdayNextSelector);
+                        const [buttonNextYesterday] = await page.$x(eleYesterdayNextSelector);
+                        await buttonNextYesterday.click()
+
+                        await page.click(btnGo)
+
+                        let isExistProductMonth = false
+
+                        while (true) {
+
+                            await sleep(1000)
+
+                            const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                            if (tvWarning != null) {
+                                break
+                            }
+
+                            const detectItems = await page.$('tbody > tr[id="record-0"]')
+                            if (detectItems != null) {
+                                isExistProductMonth = true
+                                break
+                            }
+                        }
+
+                        await sleep(1000)
+
+                        /**
+                         * Reload Dom
+                         */
+                        const textHTML = await page.content()
+                        dom = new JSDOM(textHTML).window.document
+
+                        // Get Yesterday
+                        for (const nation of nationSales) {
+                            const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+
+                            // const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
+                            yesterdaySold += parseInt(soldValue)
+                        }
+
+                        /**
+                         * @param yesterdaySold
+                         */
+                        resData["yesterdaySold"] = yesterdaySold
+
+                        // Click Date Picker From
+                        await page.click(dateFromEle)
+
+                        // Click Next Month
+                        await page.click(btnPreviousMonth)
+
+                        const elePreviousSelector = `//div[text()="1"]`
+
+                        await page.waitForXPath(elePreviousSelector);
+                        const [buttonPrevious] = await page.$x(elePreviousSelector);
+
+                        if (buttonPrevious != null) {
+                            await buttonPrevious.click()
+                        } else {
+                            // console.log("processMonth " + eleTodaySelector)
+                        }
+                    }
+
+                } else {
+                    /**
+                     * Process Month equal Month From
+                     * Status: Date Picker From
+                     */
+
+                    /**
+                     * Developping
+                     */
+
+                    // Get Today
+                    await page.waitForXPath(eleYesterdaySelector);
+                    const [buttonToday] = await page.$x(eleYesterdaySelector);
+
+                    if (buttonToday != null) {
+                        await buttonToday.click()
+                    } else {
+                        console.log("processMonth " + eleYesterdaySelector)
+                    }
+
+                    await page.click(btnGo)
+
+                    let isExistProductMonth = false
+
+                    while (true) {
+
+                        await sleep(1000)
+
+                        const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                        if (tvWarning != null) {
+                            break
+                        }
+
+                        const detectItems = await page.$('tbody > tr[id="record-0"]')
+                        if (detectItems != null) {
+                            isExistProductMonth = true
+                            break
+                        }
+                    }
+
+                    // Get Yesterday
+
+                    /**
+                     * Reload Dom
+                     */
+                    const textHTML = await page.content()
+                    dom = new JSDOM(textHTML).window.document
+
+                    let todaySold = 0
+
+                    // Get Yesterday
+                    for (const nation of nationSales) {
+                        const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+                        const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
+
+                        todaySold += parseInt(soldValue)
+                    }
+
+                    /**
+                     * @param todaySold
+                     */
+                    resData["todaySold"] = todaySold
+
+                    // Get Yesterday
+                    let dateYesterday = processDay - 1
+
+                    const eleYesterday = `//div[text()="${dateYesterday}"]`
+
+                    // Click Date Picker From
+                    await page.click(dateFromEle)
+
+                    await page.waitForXPath(eleYesterday);
+                    const [buttonFromYesterday] = await page.$x(eleYesterday);
+                    await buttonFromYesterday.click()
+
+                    // Click Date Picker To
+                    await page.click(dateToEle)
+
+                    await page.waitForXPath(eleYesterday);
+                    const [buttonNextYesterday] = await page.$x(eleYesterday);
+                    await buttonNextYesterday.click()
+
+                    await page.click(btnGo)
+
+                    while (true) {
+
+                        await sleep(1000)
+
+                        const tvWarning = await page.$('span[class="sci-icon sci-warning pr-small"]')
+                        if (tvWarning != null) {
+                            break
+                        }
+
+                        const detectItems = await page.$('tbody > tr[id="record-0"]')
+                        if (detectItems != null) {
+                            isExistProductMonth = true
+                            break
+                        }
+                    }
+
+
+                    let yesterdaySold = 0
+
+                    for (const nation of nationSales) {
+                        const soldValue = dom.querySelector(`#currency-summary-sold-${nation}`).textContent.trim()
+                        const royaltiesValue = dom.querySelector(`#currency-summary-royalties-${nation}`).textContent.trim()
+
+                        yesterdaySold += parseInt(soldValue)
+                    }
+
+                    /**
+                     * @param yesterdaySold
+                     */
+                    resData["yesterdaySold"] = yesterdaySold
+
+                    /**
+                     * * Developping
+                     */
+
+                    // Previous Month
+                    // Click Date Picker From
+                    await page.click(dateFromEle)
+
+                    // Click Previous Month
                     await page.click(btnPreviousMonth)
 
                     /**
@@ -727,11 +1120,12 @@ async function getDashBoardInfo(id) {
 
                 await sleep(1000)
 
-
                 /** 
                  * Click Previous Month
                  */
-                await page.click(btnPreviousMonth)
+                if (detectPrevious) {
+                    await page.click(btnPreviousMonth)
+                }
 
                 const textHTML = await page.content()
 
@@ -748,10 +1142,6 @@ async function getDashBoardInfo(id) {
 
                 console.log("Month " + processMonth + " Year " + processYear)
 
-                // const [button] = await page.$x(`//div[class="btn-light" contains(., "${yesterdaySelector}")]`);
-                // if (button) {
-                //     await button.click();
-                // }
                 /**
                  * Click Date in Date Picker To
                  */
@@ -785,7 +1175,9 @@ async function getDashBoardInfo(id) {
                 /**
                  * Click Previous Month
                  */
-                await page.click(btnPreviousMonth)
+                if (detectPrevious) {
+                    await page.click(btnPreviousMonth)
+                }
 
                 // await page.waitForXPath(eleYesterdaySelector);
                 const [button] = await page.$x(eleYesterdaySelector);
@@ -806,6 +1198,8 @@ async function getDashBoardInfo(id) {
                 }
 
                 processMonth -= 1
+
+                detectPrevious = true
             }
 
 
@@ -827,7 +1221,7 @@ async function getDashBoardInfo(id) {
             if (yesterdaySelector != null) {
                 const dateYesterday = await page.evaluate(el => el.textContent, yesterdaySelector)
 
-                await page.click('button[class="btn btn-secondary h-100 font-weight-bold ml-base"]')
+                await page.click(btnGo)
 
                 let isExistProductMonth = false
 
@@ -1084,29 +1478,34 @@ async function getDashBoardInfo(id) {
 
         dom = new JSDOM(textDashBoardHTML).window.document
 
-
         // Tier
 
-        const tierEle = dom.querySelector('.card-header > h4').textContent
-            // console.log("Tier " + tierEle)
+        const tierEle = dom.querySelector('.card-header > h4').textContent.trim()
+
+        const tierTextList = tierEle.match(/\S+/g)
+        resData["tier"] = tierTextList[tierTextList.length - 1]
 
         //    'div["class="row pb-large account-status-container"]'
         // Submitted Today
         const submitTodaySelector = dom.querySelector('.card > .card-body > .row > div:nth-child(1)')
-        const uploadedToday = submitTodaySelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
-        const percentUploadedToday = submitTodaySelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
+        const uploadedToday = submitTodaySelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent.trim()
+        const percentUploadedToday = submitTodaySelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent.trim()
 
         // Published Designs
         const publishSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(2)')
-        const publishDesignedEle = publishSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
-        const percentPublishDesignedEle = publishSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
+        const publishDesignedEle = publishSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent.trim()
+        const percentPublishDesignedEle = publishSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent.trim()
+
+        // Slot
+        resData["slot"] = publishDesignedEle.match(/\S+/g)[0] + "/" + publishDesignedEle.match(/\S+/g)[2]
 
         // Product Potential
         const poentialSelector = dom.querySelector('.card > .card-body > .row > div:nth-child(3)')
-        const poentialEle = poentialSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent
-        const percentPotential = poentialSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent
+        const poentialEle = poentialSelector.querySelector('div[class="progress-summary col-9 text-left"] > span').textContent.trim()
+        const percentPotential = poentialSelector.querySelector('div[class="col-3 text-right flow-typography-body-text-secondary"] > span').textContent.trim()
 
         const statusDashboard = {
+            tier: tierEle,
             submit: {
                 submit: uploadedToday,
                 percentSubmit: percentUploadedToday
@@ -1127,6 +1526,8 @@ async function getDashBoardInfo(id) {
 
         // console.log("Last 7 days")
 
+        let weekSold = 0
+
         /**
          * Get Sales in last 7 days
          */
@@ -1137,11 +1538,14 @@ async function getDashBoardInfo(id) {
             // console.log(`${nation}`)
             // console.log(`   Sold Value: ${soldValue}`)
             // console.log(`   Royalties Element: ${royaltiesValue}`)
+            weekSold += parseInt(weekSold)
             itemSevenDaysList.push({
                 sold: soldValue,
                 royalties: royaltiesValue
             })
         }
+
+        resData['weekSold'] = weekSold
 
         let tvNameAccount = ''
         let tvUserNameAccount = ''
@@ -1275,7 +1679,12 @@ async function getDashBoardInfo(id) {
         resData["overview"] = mapProducts
 
         // Write File Data
-        fs.writeFile(`C:\\Users\\Admin\\TestMerch\\${id}.txt`, JSON.stringify(resData), (err) => {
+        // Create Folder
+        hidemyacc.createFolder()
+
+        const filePath = hidemyacc.createFilePath(`${id}.txt`)
+
+        fs.writeFile(filePath, JSON.stringify(resData), (err) => {
             if (err) console.log(err);
             else {
                 console.log("File written successfully\n");
