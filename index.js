@@ -13,6 +13,7 @@ const hidemyacc = new Hidemyacc()
 const path = require("path");
 const fs = require("fs");
 const { ifError } = require('assert');
+const { clearInterval } = require('timers');
 
 
 
@@ -48,12 +49,14 @@ const STATUS_SELECTOR_UNDER_REVIEW = "REVIEW"
 const STATUS_SELECTOR_DECLINED = "DECLINED"
 const STATUS_SELECTOR_REJECTED = "AMAZON_REJECTED"
 const STATUS_SELECTOR_PROCESSING = "PUBLISHING"
+const STATUS_SELECTOR_REMOVE = "DELETED"
 
 const checkStatusList = [
     STATUS_SELECTOR_UNDER_REVIEW,
     STATUS_SELECTOR_DECLINED,
     STATUS_SELECTOR_REJECTED,
-    STATUS_SELECTOR_PROCESSING
+    STATUS_SELECTOR_PROCESSING,
+    STATUS_SELECTOR_REMOVE
 ]
 
 const months_year = [
@@ -135,6 +138,8 @@ const months_year = [
 
 // job.start();
 
+let countThread = 0
+
 getAllAccountInfo()
 
 async function getAllAccountInfo() {
@@ -147,11 +152,28 @@ async function getAllAccountInfo() {
 
         const profiles = response.data
 
-        while (true) {
-            index += 1
-            await getDashBoardInfo(profiles[index].id)
-            console.log(profiles[index].id)
-        }
+        countThread = 0
+
+        const timeInterval = setInterval(async() => {
+            if (index == profiles.length) {
+                clearInterval(timeInterval)
+                return
+            }
+            if (countThread < 2) {
+                countThread++
+                index += 1
+                await getDashBoardInfo(profiles[index].id)
+            }
+        }, 2000)
+
+        // while (true) {
+        //     index += 1
+        //     if (index == profiles.length) {
+        //         break
+        //     }
+        //     await getDashBoardInfo(profiles[index].id)
+        //     console.log(profiles[index].id)
+        // }
 
         // const timeInterval = setInterval(async() => {
         //     index += 1
@@ -164,8 +186,6 @@ async function getAllAccountInfo() {
         // }, 3000)
     }
 }
-
-// getDashBoardInfo()
 
 async function getDashBoardInfo(id) {
 
@@ -225,13 +245,14 @@ async function getDashBoardInfo(id) {
                 // response = await axios.post(`${baseUrl}/profiles/start/${profileID}`, { timeout: 16 })
                 // .then(res => {     console.log(JSON.stringify(res) );  })
                 // .catch(error => {     console.log("TimeoutCC")  });
-                response = await hidemyacc.start(profileID);
+                response = await hidemyacc.start(id);
 
                 const data = response.data
 
                 wsUrlProfile = data.wsUrl
             } catch (e) {
                 await hidemyacc.stop(id)
+                countThread -= 1
                 return;
             }
         }
@@ -273,6 +294,7 @@ async function getDashBoardInfo(id) {
 
         if (await page.$('a[class="link logout-link"]') === null) {
             await hidemyacc.stop(id)
+            countThread -= 1
             return
         }
 
@@ -539,7 +561,13 @@ async function getDashBoardInfo(id) {
                 const productItems = dom.querySelector('table')
                 const productItemsList = productItems.querySelectorAll('tr')
 
-                // console.log(`Product Length ${productItemsList.length}`)
+                console.log(`Product Length ${productItemsList.length}`)
+
+                if (statusSelector == STATUS_SELECTOR_REJECTED) {
+                    resData["reject"] = productItemsList.length - 2
+                } else if (statusSelector == STATUS_SELECTOR_REMOVE) {
+                    resData["remove"] = productItemsList.length - 2
+                }
             }
 
             resData["manage"] = {
@@ -1116,6 +1144,7 @@ async function getDashBoardInfo(id) {
 
                 // Update isFirst
                 isFirst = false
+                continue
             } else {
 
                 await sleep(1000)
@@ -1676,10 +1705,20 @@ async function getDashBoardInfo(id) {
                 resData["returned"] += mapProducts[k].returned
             });
 
-        resData["overview"] = mapProducts
+        let productData = []
 
-        // Write File Data
-        // Create Folder
+        var keys = Object.keys(mapProducts);
+        keys.forEach(function(key) {
+            productData.push(mapProducts[key]);
+        });
+
+        console.log("Overview " + productData)
+
+        resData["overview"] = productData
+
+        resData["id"] = id
+            // Write File Data
+            // Create Folder
         hidemyacc.createFolder()
 
         const filePath = hidemyacc.createFilePath(`${id}.txt`)
@@ -1698,6 +1737,11 @@ async function getDashBoardInfo(id) {
         await page.close()
 
         await browser.close()
+
+        /**
+         * Success Complete 
+         */
+        countThread -= 1
 
         // await page.evaluate(() => {
         //     const tds = Array.from(document.querySelectorAll('.GridHeader td'))
